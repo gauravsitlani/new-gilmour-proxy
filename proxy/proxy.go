@@ -1,21 +1,22 @@
+//Proxy Backup = Proxy > 5/7/18
+
 package proxy
 
 import (
-	"log"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"math/rand"
 	"net/http"
-	"io/ioutil"
 	"sync"
 
 	G "gopkg.in/gilmour-libs/gilmour-e-go.v4"
 	"gopkg.in/gilmour-libs/gilmour-e-go.v4/backends"
 	"time"
 )
-
 
 type Status int
 
@@ -87,25 +88,24 @@ func (n *nodeMap) Get(uid NodeID) (node *Node, err error) {
 	return
 }
 
-
-// ReqOpts is a struct for setting options like timeout while making a request
-type ReqOpts struct {
-	Timeout int `json:"timeout"`
-}
-
 // Request is a struct for managing requests coming from node
 type Request struct {
 	Topic       string      `json:"topic"`
 	Composition interface{} `json:"composition"`
 	Message     interface{} `json:"message"`
-	Opts        ReqOpts     `json:"opts"`
+	Timeout     int         `json:"timeout"`
 }
 
 // RequestResponse is a struct for responding to a Request
 type RequestResponse struct {
-	Messages map[string]interface{} `json:"messages"`
-	Code     int                    `json:"code"`
-	Length   int                    `json:"length"`
+	Messages interface{} `json:"messages"`
+	Code     int         `json:"code"`
+	Length   int         `json:"length"`
+}
+
+type RequestResponseMessage struct {
+	Data interface{} `json:"data"`
+	Code int         `json:"code"`
 }
 
 // Message is a struct which has data to be processed and handler path for node
@@ -113,7 +113,6 @@ type Message struct {
 	Data        interface{} `json:"data"`
 	HandlerPath string      `json:"handler_path"`
 }
-
 
 type GilmourTopic string
 
@@ -127,16 +126,18 @@ type ServiceMap map[GilmourTopic]Service
 type NodeReq struct {
 	Port            string     `json:"port"`
 	HealthCheckPath string     `json:"health_check"`
+	Slots           []Slot     `json:"slots"`
 	Services        ServiceMap `json:"services"`
 }
 
 type Node struct {
-	port 			string
+	port            string
 	healthcheckpath string
-	services 		ServiceMap
-	status			Status
-	engine			*G.Gilmour
-	id				NodeID
+	slots           []Slot
+	services        ServiceMap
+	status          Status
+	engine          *G.Gilmour
+	id              NodeID
 }
 
 // Service is a struct which holds details for the service to be added / removed
@@ -148,8 +149,17 @@ type Service struct {
 	Subscription *G.Subscription `json:"subscription"`
 }
 
+// Slot is a struct which holds details for the slot to be added / removed
+type Slot struct {
+	Topic        string          `json:"topic"`
+	Group        string          `json:"group"`
+	Path         string          `json:"path"`
+	Timeout      int             `json:"timeout"`
+	Data         interface{}     `json:"data"`
+	Subscription *G.Subscription `json:"subscription"`
+}
 
-// Providing NodeOperations 
+// Providing NodeOperations
 type NodeOperations interface {
 	FormatResponse() CreateNodeResponse
 	GetPort() string
@@ -164,10 +174,10 @@ type NodeOperations interface {
 	RemoveService(GilmourTopic, Service) error
 	RemoveServices(ServiceMap) error
 
+	RequestService(Request) RequestResponse
 	Start() error
 	Stop() error
 }
-
 
 //**************************************************************************
 
@@ -205,13 +215,13 @@ func (node *Node) Stop() (err error) {
 	return
 }
 
-func DeleteNode(node *Node) (error){
+func DeleteNode(node *Node) error {
 	if _, err := http.Get("http://127.0.0.1:" + node.port); err != nil {
 		log.Println(err)
 		return err
 	}
 
-	if err := nMap.Del(node.id); err!= nil {
+	if err := nMap.Del(node.id); err != nil {
 		log.Println(err)
 		return err
 	}
@@ -228,12 +238,10 @@ func DeleteNode(node *Node) (error){
 //CreateNodeResponse //init PublishPort
 
 type CreateNodeResponse struct {
-	ID            string `json:"id"`
-	PublishPort   string `json:"publish_port"`
-	Status        int `json:"status"`
+	ID          string `json:"id"`
+	PublishPort string `json:"publish_port"`
+	Status      int    `json:"status"`
 }
-
-
 
 ///////////////////////////////////////////////////////////////////////
 func uniqueNodeID(strlen int) (id string) {
@@ -251,42 +259,83 @@ func uniqueNodeID(strlen int) (id string) {
 func (node *Node) FormatResponse() (resp CreateNodeResponse) {
 	resp.ID = string(node.id)
 	resp.PublishPort = node.port
-	resp.Status,_ = fmt.Printf("%v", node.status)
+	resp.Status, _ = fmt.Printf("%v", node.status)
 	return
 }
-
 
 /////////////////////////////////////////////////////////////////////////////////////
 // Bind the function with the services
 
 func (service Service) bindListeners(listenPort string, healthPath string) func(req *G.Request, resp *G.Message) {
-	return func(req *G.Request, resp *G.Message){
+	return func(req *G.Request, resp *G.Message) {
 		message := new(Message)
-		if err := req.Data(message); err!= nil{
+		if err := req.Data(message); err != nil {
 			log.Println(err.Error())
 			return
 		}
-		fmt.Println("Received : ", message.Data)
+		mJSON, err := json.Marshal(message)
+		fmt.Println("Received : ", message, string(mJSON))
+		if err != nil {
+			log.Println(err.Error())
+			return
+		}
+		requester := fmt.Sprintf("http://localhost:%s/%s", listenPort, service.Path)
+		log.Println(requester)
+		hndlrResp, err := http.Post(requester, "application/json", bytes.NewBuffer(mJSON))
+		body, err := ioutil.ReadAll(hndlrResp.Body)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		var data interface{}
+		log.Println("Request: ", requester, "Response", hndlrResp)
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			log.Println("Json Error: ", err.Error())
+			return
+		}
+		resp.SetData(data)
+	}
+}
+
+//Bind the function with the slots
+func (slot Slot) bindListeners(listenPort string, healthPath string) func(req *G.Request) {
+	return func(req *G.Request) {
+		message := new(Message)
+		if err := req.Data(message); err != nil {
+			log.Println(err.Error())
+			return
+		}
+		fmt.Println("Received: ", message.Data)
 		mJSON, err := json.Marshal(message)
 		if err != nil {
 			log.Println(err.Error())
 			return
 		}
-		hndlrResp , err := http.Post("http://127.0.0.1:"+listenPort,"application/json",bytes.NewReader(mJSON))
+		requester := fmt.Sprintf("http://localhost:%s/%s", listenPort, slot.Path)
+		log.Println(requester)
+		hndlrResp, err := http.Post(requester, "application/json", bytes.NewBuffer(mJSON))
 		body, err := ioutil.ReadAll(hndlrResp.Body)
 		if err != nil {
 			log.Println(err)
-			panic(err)
-		}
-		var data interface{}
-		err = json.Unmarshal(body, &data)
-		if err != nil {
-			log.Println("Error: ", err.Error())
 			return
 		}
-		resp.SetData(data)
-
+		var data interface{}
+		log.Println("Request: ", requester, "Response", hndlrResp)
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			log.Println("Json Error: ", err.Error())
+			return
+		}
 	}
+}
+
+// GetSlots returns all the slots on which node is currently subscribed to
+func (node *Node) GetSlots() (slots []Slot, err error) {
+	if node.status == 200 {
+		slots = node.slots
+	}
+	return
 }
 
 // AddService adds and subscribes a service in the existing list of services
@@ -312,9 +361,47 @@ func (node *Node) AddServices(services ServiceMap) (err error) {
 	return
 }
 
+func contains(slots []Slot, slotToAdd Slot) (bool, int) {
+	for pos, slot := range slots {
+		if slot.Topic == slotToAdd.Topic &&
+			slot.Path == slotToAdd.Path &&
+			slot.Group == slotToAdd.Group {
+			return true, pos
+		}
+	}
+	return false, -1
+}
+
+// AddSlot adds and subscribes a slot in the existing list of slots
+func (node *Node) AddSlot(slot Slot) (err error) {
+	o := G.NewHandlerOpts()
+	o.SetTimeout(slot.Timeout)
+	o.SetGroup(slot.Group)
+	if slot.Subscription, err = node.engine.Slot(slot.Topic, slot.bindListeners(node.port, node.healthcheckpath), o); err != nil {
+		return
+	}
+	slotExists, pos := contains(node.slots, slot)
+	if !slotExists {
+		node.slots = append(node.slots, slot)
+	} else {
+		node.slots[pos].Subscription = slot.Subscription
+	}
+	return
+}
+
+// AddSlots adds multiple slots to the existing list of slot's by subscribe them
+func (node *Node) AddSlots(slots []Slot) (err error) {
+	for _, slot := range slots {
+		if err = node.AddSlot(slot); err != nil {
+			log.Println(err.Error())
+			return
+		}
+	}
+	return
+}
 
 // Start will Start Gilmour engine and added services of slots if any in the Node struct instance
-func (node *Node) Start() (error) {
+func (node *Node) Start() error {
 	if node == nil {
 		log.Println("NODE is nill")
 	}
@@ -325,12 +412,15 @@ func (node *Node) Start() (error) {
 	if err := node.AddServices(node.services); err != nil {
 		return err
 	}
+	if err := node.AddSlots(node.slots); err != nil {
+		return err
+	}
 	return nil
 }
 
 //Getting status of Node and running it
 
-func (node *Node) GetStatus(sync bool)(Status, error){
+func (node *Node) GetStatus(sync bool) (Status, error) {
 
 	addr := fmt.Sprintf("http://127.0.0.1:%s", node.port)
 	log.Println(addr)
@@ -345,14 +435,14 @@ func (node *Node) GetStatus(sync bool)(Status, error){
 	hlp := "/health_check"
 	addr = addr + hlp
 	req, err := http.Get(addr)
-	
+
 	if err != nil {
 		node.status = Status(req.StatusCode) //unavailable
 	}
 	defer resp.Body.Close()
 
-	body ,err := ioutil.ReadAll(req.Body)
-	if err != nil{
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
 		log.Println(err)
 		return 0, err
 	}
@@ -360,16 +450,15 @@ func (node *Node) GetStatus(sync bool)(Status, error){
 	reply := string(body)
 
 	// TODO: validate these assumptions
-	if reply == "OK"{
+	if reply == "OK" {
 		node.status = 200 //available //ok
 	} else {
 		node.status = 403 //Unavailable
 	}
 
-	return node.status,err
-	
-}
+	return node.status, err
 
+}
 
 // NodeWatchdog checks for a status of node and depending on the status
 // If dirty - calls DeleteNode
@@ -417,7 +506,27 @@ func MakeGilmour(connect string) (engine *G.Gilmour, err error) {
 	return
 }
 
-func CreateNode(nodeReq *NodeReq, engine *G.Gilmour) (*Node, error){
+func (node *Node) RequestService(serviceRequest Request) RequestResponse {
+	// log.Println("func RequestService serviceRequest Structure: ", serviceRequest)
+	message := Message{}
+	message.Data = serviceRequest.Message
+	message.HandlerPath = node.port
+	//Handler Path to be set
+	req := node.engine.NewRequest(serviceRequest.Topic)
+	resp, err := req.Execute(G.NewMessage().SetData(message))
+	if err != nil {
+		log.Println("Error running service request: ", err)
+		return RequestResponse{}
+	}
+	output := RequestResponse{}
+	if err := resp.Next().GetData(&output); err != nil {
+		log.Println("Error receiving response: ", err)
+	}
+	log.Println("Resp message: ", output)
+	return output
+}
+
+func CreateNode(nodeReq *NodeReq, engine *G.Gilmour) (*Node, error) {
 	node := new(Node)
 	node.engine = engine
 	node.id = NodeID(uniqueNodeID(50))
@@ -425,7 +534,7 @@ func CreateNode(nodeReq *NodeReq, engine *G.Gilmour) (*Node, error){
 	node.port = nodeReq.Port
 	node.services = make(ServiceMap)
 	node.services = nodeReq.Services
-
+	node.slots = nodeReq.Slots
 	if node.engine == nil {
 		log.Println("Engine is nil")
 	}
@@ -437,6 +546,6 @@ func CreateNode(nodeReq *NodeReq, engine *G.Gilmour) (*Node, error){
 		return nil, err
 	}
 
-	err = nMap.Put(node.id,node)
+	err = nMap.Put(node.id, node)
 	return node, nil
 }
