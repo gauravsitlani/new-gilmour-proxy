@@ -166,6 +166,7 @@ type NodeOperations interface {
 	GetHealthCheckPath() string
 	GetID() string
 	GetEngine() *G.Gilmour
+	GetNodeDetails(id string) (NodeReq, error)
 	GetStatus(sync bool) (int, error)
 	GetServices() (ServiceMap, error)
 
@@ -372,6 +373,12 @@ func contains(slots []Slot, slotToAdd Slot) (bool, int) {
 	return false, -1
 }
 
+func (node *Node) RemoveService(topic GilmourTopic, service Service) (err error) {
+	node.engine.UnsubscribeReply(string(topic), service.Subscription)
+	delete(node.services, topic)
+	return
+}
+
 // AddSlot adds and subscribes a slot in the existing list of slots
 func (node *Node) AddSlot(slot Slot) (err error) {
 	o := G.NewHandlerOpts()
@@ -396,6 +403,44 @@ func (node *Node) AddSlots(slots []Slot) (err error) {
 			log.Println(err.Error())
 			return
 		}
+	}
+	return
+}
+
+func posByTopic(slots []Slot, topic string) int {
+	for p, v := range slots {
+		if v.Topic == topic {
+			return p
+		}
+	}
+	return -1
+}
+
+func posByTopicPath(slots []Slot, topic string, path string) int {
+	for p, v := range slots {
+		if v.Topic == topic && v.Path == "/"+path {
+			return p
+		}
+	}
+	return -1
+}
+
+// RemoveSlot removes a slot from the list of slots which node is currently subscribed to
+func (node *Node) RemoveSlot(slot Slot) (err error) {
+	if slot.Path != "" {
+		i := posByTopicPath(node.slots, slot.Topic, slot.Path)
+		if i != -1 {
+			slotRemove := node.slots[i]
+			node.engine.UnsubscribeSlot(slotRemove.Topic, slotRemove.Subscription)
+			node.slots = append(node.slots[:i], node.slots[i+1:]...)
+		}
+	} else {
+		for i := posByTopic(node.slots, slot.Topic); i != -1; i = posByTopic(node.slots, slot.Topic) {
+			slotRemove := node.slots[i]
+			node.engine.UnsubscribeSlot(slotRemove.Topic, slotRemove.Subscription)
+			node.slots = append(node.slots[:i], node.slots[i+1:]...)
+		}
+
 	}
 	return
 }
@@ -524,6 +569,21 @@ func (node *Node) RequestService(serviceRequest Request) RequestResponse {
 	}
 	log.Println("Resp message: ", output)
 	return output
+}
+
+//Get node details returns the details of the said node id
+func GetNodeDetails(id string) (NodeReq, error) {
+	nm := GetNodeMap()
+	node, err := nm.Get(NodeID(id))
+	rep := NodeReq{}
+	if err != nil {
+		return rep, err
+	}
+	rep.Port = node.port
+	rep.HealthCheckPath = node.healthcheckpath
+	rep.Services = node.services
+	rep.Slots = node.slots
+	return rep, nil
 }
 
 func CreateNode(nodeReq *NodeReq, engine *G.Gilmour) (*Node, error) {

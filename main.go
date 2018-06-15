@@ -92,6 +92,23 @@ func createNodeHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+//Get node details
+func getNodeDetails(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	nodeData, err := proxy.GetNodeDetails(id)
+	if err != nil {
+		log.Println(err.Error())
+		return
+	}
+	data, err := json.Marshal(nodeData)
+	if err != nil {
+		log.Println(err.Error())
+		return
+	}
+	w.Write(data)
+}
+
 // Delete Node
 func deleteNodeHandler(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
@@ -217,6 +234,31 @@ func getSlotsHandler(w http.ResponseWriter, req *http.Request) {
 	return
 }
 
+// DELETE /nodes/:id/slots?topic=<topic>&path=<path>
+func removeSlotsHandler(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	node, err := getNode(id)
+	if err != nil {
+		logWriterError(w, err)
+		return
+	}
+	topic := req.URL.Query().Get("topic")
+	path := req.URL.Query().Get("path")
+	slot := proxy.Slot{
+		Topic: topic,
+		Path:  path,
+	}
+	err = node.RemoveSlot(slot)
+	status := setResponseStatus(err)
+	js := formatResponse("status", status)
+	w.Header().Set("Content-Type", "application/json")
+	if _, err = w.Write(js.([]byte)); err != nil {
+		log.Println(err.Error())
+	}
+	return
+}
+
 func RequestServiceHandler(w http.ResponseWriter, req *http.Request) {
 	vars := mux.Vars(req)
 	id := vars["id"]
@@ -246,21 +288,51 @@ func RequestServiceHandler(w http.ResponseWriter, req *http.Request) {
 	w.Write(data)
 }
 
+// DELETE /nodes/:id/services?topic=<topic>&path=<path>
+func removeServicesHandler(w http.ResponseWriter, req *http.Request) {
+	vars := mux.Vars(req)
+	id := vars["id"]
+	node, err := getNode(id)
+	if err != nil {
+		logWriterError(w, err)
+		return
+	}
+	topic := proxy.GilmourTopic(req.URL.Query().Get("topic"))
+	services, err := node.GetServices()
+	if err != nil {
+		logWriterError(w, err)
+		return
+	}
+	service := services[topic]
+	err = node.RemoveService(topic, service)
+	status := setResponseStatus(err)
+	js := formatResponse("status", status)
+	w.Header().Set("Content-Type", "application/json")
+	if _, err = w.Write(js.([]byte)); err != nil {
+		log.Println(err.Error())
+	}
+	return
+}
+
 func main() {
 	proxy.InitNodeMap()
 
 	r := mux.NewRouter()
 	log.Println("listening...")
-	r.HandleFunc("/nodes", createNodeHandler)
+	r.HandleFunc("/nodes", createNodeHandler).Methods("POST")
+	r.HandleFunc("/nodes/{id}", getNodeDetails).Methods("GET")
 	r.HandleFunc("/nodes/{id}", deleteNodeHandler).Methods("DELETE")
 
 	r.HandleFunc("/request/{id}", RequestServiceHandler).Methods("POST")
 
 	r.HandleFunc("/nodes/{id}/services", getServicesHandler).Methods("GET")
 	r.HandleFunc("/nodes/{id}/services", addServicesHandler).Methods("POST")
+	r.HandleFunc("/nodes/{id}/services", removeServicesHandler).Methods("DELETE")
 
 	r.HandleFunc("/nodes/{id}/slots", addSlotsHandler).Methods("POST")
 	r.HandleFunc("/nodes/{id}/slots", getSlotsHandler).Methods("GET")
+	r.HandleFunc("/nodes/{id}/slots", removeSlotsHandler).Methods("DELETE")
+
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		log.Println(err.Error())
 	}
