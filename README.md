@@ -16,7 +16,7 @@ Gilmour proxy listens for http requests on a port it is configured to start with
 ### :POST /nodes
 
 **Request Body**
-```json
+```
 {
     port: int <the port number this node will listen on>,
     health_check: string <http path at port which responds to health ping.default: /health>,
@@ -44,7 +44,7 @@ Before returning a response, the proxy performs the following steps:
 2. Create subscriptions for the signals and slots provided
 
 **Response Body**
-```json
+```
 {
     id: string <a uuid identifying this node. this needs to be reused for further requests>,
     status: string <status of the node - "ok", "unavailable" or "dirty">
@@ -59,7 +59,7 @@ Before returning a response, the proxy performs the following steps:
 ### :GET /nodes/:id
 
 **Response**
-```json
+```
 {
     id: string <node uuid>,
     port: int <the port number this node will listen on>,
@@ -89,7 +89,7 @@ Before returning a response, the proxy performs the following steps:
 ### :DELETE /nodes/:id
 
 **Response**
-```json
+```
 {
     status:string <'ok' or error message>
 }
@@ -103,7 +103,7 @@ Before returning a response, the proxy performs the following steps:
 ### :POST /nodes/:id/slots
 
 **Request**
-```json
+```
 {
     topic: string <topic>,
     group: string <exclusion group>,
@@ -112,7 +112,7 @@ Before returning a response, the proxy performs the following steps:
 }
 ```
 **Response**
-```json
+```
 {
     status:string <'ok' or error message>
 }
@@ -123,7 +123,7 @@ Before returning a response, the proxy performs the following steps:
 ### :GET /nodes/:id/slots
 
 **Response**
-```json
+```
 {
    slots:[
        {
@@ -141,7 +141,7 @@ Before returning a response, the proxy performs the following steps:
 ### :DELETE /nodes/:id/slots?topic=<topic>&path=<path>
 
 **Response**
-```json
+```
 {
     status:string <'ok' or error message>
 }
@@ -157,7 +157,7 @@ Before returning a response, the proxy performs the following steps:
 ### :POST /nodes/:id/services
 
 **Request**
-```json
+```
 {
     topic: string <topic>,
     group: string <exclusion group>,
@@ -166,7 +166,7 @@ Before returning a response, the proxy performs the following steps:
 }
 ```
 **Response**
-```json
+```
 {
     status:string <'ok' or error message>
 }
@@ -176,7 +176,7 @@ Before returning a response, the proxy performs the following steps:
 ### :GET /nodes/:id/services
 
 **Response**
-```json
+```
 {
     services: [
     {
@@ -194,7 +194,7 @@ Before returning a response, the proxy performs the following steps:
 ### :DELETE /nodes/:id/services
 
 **Response**
-```json
+```
 {
 status: string <'ok' or error message.>
 }
@@ -215,7 +215,7 @@ When a node registers with the proxy (or is re-activated), it accepts publish re
 The :id is the uuid of the node which makes this request
 
 **Request**
-```json
+```
 {
     topic : string <topic to send the request to.>,
     composition : composition_spec,
@@ -248,7 +248,7 @@ During registration, every node provides a *port* on which it listens for reques
 
 ## Service endpoint
 These are called for corresponding incoming requests. A *POST* request is made to the endpoint. The request body is
-```json
+```
 {
     topic: string <topic on which this request was made>,
     sender: string <a unique uuid for this request>,
@@ -263,7 +263,7 @@ These are called for corresponding incoming requests. A *POST* request is made t
 
 ## Slot endpoint
 These are called for corresponding incoming requests. A *POST* request is made to the slot endpoint. The request body is
-```json
+```
 {
 topic: string <topic on which this request was made>,
 sender: string <a unique uuid for this request>,
