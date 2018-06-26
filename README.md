@@ -226,7 +226,7 @@ The :id is the uuid of the node which makes this request
 Either one of topic or composition_spec can be specified. This call will block till the request returns a response or times out.
 
 **Response**
-```json
+```
 {
     messages: [
     {
