@@ -1,5 +1,3 @@
-//Proxy Backup = Proxy > 5/7/18
-
 package proxy
 
 import (
