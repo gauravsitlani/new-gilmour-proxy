@@ -128,6 +128,15 @@ type NodeReq struct {
 	Services        ServiceMap `json:"services"`
 }
 
+type NodeDetailsReq struct {
+	Identifier		NodeID		`json:"id"`
+	Port            string     	`json:"port"`
+	HealthCheckPath string     	`json:"health_check"`
+	Slots           []Slot     	`json:"slots"`
+	Services        ServiceMap 	`json:"services"`
+	Status 			string 		`json:"status"`
+}
+
 type Node struct {
 	port            string
 	healthcheckpath string
@@ -164,7 +173,7 @@ type NodeOperations interface {
 	GetHealthCheckPath() string
 	GetID() string
 	GetEngine() *G.Gilmour
-	GetNodeDetails(id string) (NodeReq, error)
+	GetNodeDetails(id string) (NodeDetailsReq, error)
 	GetStatus(sync bool) (int, error)
 	GetServices() (ServiceMap, error)
 
@@ -570,17 +579,25 @@ func (node *Node) RequestService(serviceRequest Request) RequestResponse {
 }
 
 //Get node details returns the details of the said node id
-func GetNodeDetails(id string) (NodeReq, error) {
+func GetNodeDetails(id string) (NodeDetailsReq, error) {
 	nm := GetNodeMap()
 	node, err := nm.Get(NodeID(id))
-	rep := NodeReq{}
+	rep := NodeDetailsReq{}
 	if err != nil {
 		return rep, err
 	}
+	rep.Identifier = node.id
 	rep.Port = node.port
 	rep.HealthCheckPath = node.healthcheckpath
 	rep.Services = node.services
 	rep.Slots = node.slots
+	if node.status == 200 {
+		rep.Status = "ok"
+	} else if node.status == 404 {
+		rep.Status = "unavailable"
+	} else {
+		rep.Status = "dirty"
+	}
 	return rep, nil
 }
 
