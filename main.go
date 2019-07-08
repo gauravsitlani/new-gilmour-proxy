@@ -85,8 +85,6 @@ func createNodeHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err = w.Write(js); err != nil {
 			log.Println(err.Error())
-		} else {
-			http.NotFound(w, r)
 		}
 	}
 	return
